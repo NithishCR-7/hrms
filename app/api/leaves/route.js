@@ -13,6 +13,54 @@ function isHRRole(role) {
   return role === "hr_manager" || role === "hr_executive";
 }
 
+const DAYS_OF_WEEK = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function getDayNameFromStr(dateStr) {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("T")[0].split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return DAYS_OF_WEEK[dt.getDay()];
+}
+
+function calculateWorkingDays(startDateStr, endDateStr, workDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"], companyHolidays = []) {
+  const [sy, sm, sd] = startDateStr.split("T")[0].split("-").map(Number);
+  const [ey, em, ed] = endDateStr.split("T")[0].split("-").map(Number);
+  const current = new Date(sy, sm - 1, sd);
+  const end = new Date(ey, em - 1, ed);
+
+  if (isNaN(current.getTime()) || isNaN(end.getTime()) || end < current) {
+    return { workingDays: 0, nonWorkingDays: 0, holidayCount: 0 };
+  }
+
+  const holidayDateSet = new Set(
+    (companyHolidays || []).map((h) => (h.date ? h.date.split("T")[0] : ""))
+  );
+
+  let workingDays = 0;
+  let nonWorkingDays = 0;
+  let holidayCount = 0;
+
+  while (current <= end) {
+    const y = current.getFullYear();
+    const m = String(current.getMonth() + 1).padStart(2, "0");
+    const d = String(current.getDate()).padStart(2, "0");
+    const dStr = `${y}-${m}-${d}`;
+    const dayName = DAYS_OF_WEEK[current.getDay()];
+
+    if (holidayDateSet.has(dStr)) {
+      holidayCount++;
+    } else if (!workDays.includes(dayName)) {
+      nonWorkingDays++;
+    } else {
+      workingDays++;
+    }
+
+    current.setDate(current.getDate() + 1);
+  }
+
+  return { workingDays, nonWorkingDays, holidayCount };
+}
+
 /**
  * Calculate business/calendar days between two YYYY-MM-DD date strings inclusive.
  */
@@ -184,10 +232,23 @@ export async function GET(req) {
       .select("*")
       .eq("company_id", companyId);
 
+    // Fetch company working days schedule
+    let workDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+    const { data: schedData } = await adminSupabase
+      .from("company_work_schedules")
+      .select("work_days")
+      .eq("company_id", companyId)
+      .maybeSingle();
+
+    if (schedData && Array.isArray(schedData.work_days) && schedData.work_days.length > 0) {
+      workDays = schedData.work_days;
+    }
+
     return NextResponse.json({
       success: true,
       leaves: leaves || [],
       companyHolidays: companyHolidaysData || [],
+      workDays,
       isHR,
       role: userRole,
       employeeId: empRecord ? empRecord.id : null,
@@ -242,8 +303,8 @@ export async function POST(req) {
       return NextResponse.json({ message: "Please provide a reason for the leave request." }, { status: 400 });
     }
 
-    const totalDays = calculateLeaveDays(start_date, end_date);
-    if (totalDays <= 0) {
+    const rawDays = calculateLeaveDays(start_date, end_date);
+    if (rawDays <= 0) {
       return NextResponse.json({ message: "End date cannot be earlier than start date." }, { status: 400 });
     }
 
@@ -299,26 +360,91 @@ export async function POST(req) {
     const targetMonth = leaveStartDate.getMonth() + 1;
     const targetYear = leaveStartDate.getFullYear();
 
-    // Check if any date in requested range is an official Company Holiday
-    const { data: holidayMatches } = await adminSupabase
-      .from("company_holidays")
-      .select("*")
+    // Fetch company working schedule
+    let workDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+    const { data: schedData } = await adminSupabase
+      .from("company_work_schedules")
+      .select("work_days")
       .eq("company_id", companyId)
-      .gte("date", start_date)
-      .lte("date", end_date);
+      .maybeSingle();
 
-    if (holidayMatches && holidayMatches.length > 0) {
-      const match = holidayMatches[0];
+    if (schedData && Array.isArray(schedData.work_days) && schedData.work_days.length > 0) {
+      workDays = schedData.work_days;
+    }
+
+    // Validate if start_date or end_date falls on a non-working day (e.g. Sunday)
+    const startDayName = getDayNameFromStr(start_date);
+    const endDayName = getDayNameFromStr(end_date);
+
+    if (!workDays.includes(startDayName)) {
       return NextResponse.json(
         {
-          message: `Leave application disabled: ${match.date} is an official company holiday ("${match.title}"). Company holidays are paid non-working days, so leave applications on company holidays are disabled!`,
-          isCompanyHoliday: true,
-          holidayTitle: match.title,
-          holidayDate: match.date,
+          message: `Leave application disabled: Start date ${start_date} is a non-working day (${startDayName} / Weekly Off). Leave applications cannot start on a non-working day!`,
+          isNonWorkingDay: true,
+          dayName: startDayName,
         },
         { status: 400 }
       );
     }
+
+    if (!workDays.includes(endDayName)) {
+      return NextResponse.json(
+        {
+          message: `Leave application disabled: End date ${end_date} is a non-working day (${endDayName} / Weekly Off). Leave applications cannot end on a non-working day!`,
+          isNonWorkingDay: true,
+          dayName: endDayName,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Check if any date in requested range is an official Company Holiday
+    let holidayMatches = null;
+    try {
+      const { data: hMatches } = await adminSupabase
+        .from("company_holidays")
+        .select("*")
+        .eq("company_id", companyId)
+        .gte("date", start_date)
+        .lte("date", end_date);
+      holidayMatches = hMatches;
+    } catch (hErr) {
+      console.warn("Company holiday check notice:", hErr?.message);
+    }
+
+    if (holidayMatches && holidayMatches.length > 0) {
+      const match = holidayMatches[0];
+      const formattedMatchDate = match.date ? match.date.split("T")[0] : match.date;
+      return NextResponse.json(
+        {
+          message: `Leave application disabled: ${formattedMatchDate} is an official company holiday ("${match.title}"). Company holidays are paid non-working days, so leave applications on company holidays are disabled!`,
+          isCompanyHoliday: true,
+          holidayTitle: match.title,
+          holidayDate: formattedMatchDate,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Calculate actual working days excluding non-working days & company holidays
+    const { workingDays } = calculateWorkingDays(
+      start_date,
+      end_date,
+      workDays,
+      holidayMatches || []
+    );
+
+    if (workingDays <= 0) {
+      return NextResponse.json(
+        {
+          message: `Leave application disabled: The selected date range contains no working days. Leave applications are not required on non-working days / weekly offs!`,
+          isNonWorkingDay: true,
+        },
+        { status: 400 }
+      );
+    }
+
+    const totalDays = workingDays;
 
     // 3. Validate available leave balance for the target month
     const { data: existingLeaves } = await adminSupabase
@@ -342,7 +468,7 @@ export async function POST(req) {
     if (totalDays > availableBalance) {
       return NextResponse.json(
         {
-          message: `Insufficient leave balance for ${leaveStartDate.toLocaleString("default", { month: "long" })} ${targetYear}. You requested ${totalDays} day(s), but only ${availableBalance} day(s) remain out of your 3-day monthly allowance.`,
+          message: `Insufficient leave balance for ${leaveStartDate.toLocaleString("default", { month: "long" })} ${targetYear}. You requested ${totalDays} working day(s), but only ${availableBalance} day(s) remain out of your 3-day monthly allowance.`,
           totalDays,
           availableBalance,
           usedDaysForMonth,

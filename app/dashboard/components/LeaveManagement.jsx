@@ -40,6 +40,7 @@ export default function LeaveManagement({ userRole, employeeProfile, company }) 
   const [hrFeedback, setHrFeedback] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [companyHolidays, setCompanyHolidays] = useState([]);
+  const [workDays, setWorkDays] = useState(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]);
 
   // Derived state: calculate duration & validation directly during render
   const getCalculatedDaysAndValidation = () => {
@@ -55,17 +56,48 @@ export default function LeaveManagement({ userRole, employeeProfile, company }) 
       };
     }
 
+    const DAYS_OF_WEEK = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const getDayName = (dStr) => {
+      if (!dStr) return "";
+      const [y, m, d] = dStr.split("T")[0].split("-").map(Number);
+      const dt = new Date(y, m - 1, d);
+      return DAYS_OF_WEEK[dt.getDay()];
+    };
+
+    const startDayName = getDayName(leaveForm.start_date);
+    const endDayName = getDayName(leaveForm.end_date);
+
+    // Validate if start date is a non-working day (e.g. Sunday)
+    if (workDays && workDays.length > 0 && !workDays.includes(startDayName)) {
+      return {
+        days: 0,
+        isValid: false,
+        error: `🎉 Leave application disabled: Start date ${leaveForm.start_date} is a non-working day (${startDayName} / Weekly Off). Leave applications are not required on non-working days!`,
+      };
+    }
+
+    // Validate if end date is a non-working day (e.g. Sunday)
+    if (workDays && workDays.length > 0 && !workDays.includes(endDayName)) {
+      return {
+        days: 0,
+        isValid: false,
+        error: `🎉 Leave application disabled: End date ${leaveForm.end_date} is a non-working day (${endDayName} / Weekly Off). Leave applications are not required on non-working days!`,
+      };
+    }
+
     // Check if start_date..end_date overlaps with any registered Company Holiday
     if (companyHolidays && companyHolidays.length > 0) {
       const holidayMatch = companyHolidays.find((h) => {
-        return h.date && leaveForm.start_date <= h.date && leaveForm.end_date >= h.date;
+        const hDate = h.date ? h.date.split("T")[0] : "";
+        return hDate && leaveForm.start_date <= hDate && leaveForm.end_date >= hDate;
       });
 
       if (holidayMatch) {
+        const formattedDate = holidayMatch.date ? holidayMatch.date.split("T")[0] : "";
         return {
           days: 0,
           isValid: false,
-          error: `🎉 Leave application disabled: ${holidayMatch.date} is an official company holiday ("${holidayMatch.title}"). Company holidays are paid non-working days, so you do not need to apply for leave!`,
+          error: `🎉 Leave application disabled: ${formattedDate} is an official company holiday ("${holidayMatch.title}"). Company holidays are paid non-working days, so leave applications on company holidays are disabled!`,
         };
       }
     }
@@ -78,16 +110,44 @@ export default function LeaveManagement({ userRole, employeeProfile, company }) 
     if (end < start) {
       return { days: 0, isValid: false, error: "End date cannot be earlier than start date." };
     }
-    const diffTime = end.getTime() - start.getTime();
-    const days = Math.round(diffTime / (1000 * 3600 * 24)) + 1;
-    if (days > balance.available) {
+
+    // Calculate actual working days excluding non-working days & company holidays
+    let workingDays = 0;
+    const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const endDt = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    const holidayDateSet = new Set(
+      (companyHolidays || []).map((h) => (h.date ? h.date.split("T")[0] : ""))
+    );
+
+    while (cur <= endDt) {
+      const y = cur.getFullYear();
+      const m = String(cur.getMonth() + 1).padStart(2, "0");
+      const d = String(cur.getDate()).padStart(2, "0");
+      const dStr = `${y}-${m}-${d}`;
+      const dName = DAYS_OF_WEEK[cur.getDay()];
+
+      if (!holidayDateSet.has(dStr) && (!workDays || workDays.includes(dName))) {
+        workingDays++;
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+
+    if (workingDays <= 0) {
       return {
-        days,
+        days: 0,
         isValid: false,
-        error: `Insufficient leave balance! You requested ${days} day(s), but you only have ${balance.available} day(s) available for this month out of your 3-day allowance.`,
+        error: "🎉 Leave application disabled: Selected dates are non-working days / weekly offs. You do not need to apply for leave on non-working days!",
       };
     }
-    return { days, isValid: true, error: "" };
+
+    if (workingDays > balance.available) {
+      return {
+        days: workingDays,
+        isValid: false,
+        error: `Insufficient leave balance! You requested ${workingDays} working day(s), but you only have ${balance.available} day(s) available for this month out of your 3-day allowance.`,
+      };
+    }
+    return { days: workingDays, isValid: true, error: "" };
   };
 
   const { days: calculatedDays, isValid: isFormValid, error: formValidationError } = getCalculatedDaysAndValidation();
@@ -102,6 +162,7 @@ export default function LeaveManagement({ userRole, employeeProfile, company }) 
       }
       setLeaves(data.leaves || []);
       if (data.companyHolidays) setCompanyHolidays(data.companyHolidays || []);
+      if (data.workDays) setWorkDays(data.workDays || ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]);
       if (data.balance) setBalance(data.balance);
       setIsHR(Boolean(data.isHR));
       if (data.warning) setWarningNotice(data.warning);
@@ -125,6 +186,7 @@ export default function LeaveManagement({ userRole, employeeProfile, company }) 
         }
         setLeaves(data.leaves || []);
         if (data.companyHolidays) setCompanyHolidays(data.companyHolidays || []);
+        if (data.workDays) setWorkDays(data.workDays || ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]);
         if (data.balance) setBalance(data.balance);
         setIsHR(Boolean(data.isHR));
         if (data.warning) setWarningNotice(data.warning);
@@ -672,7 +734,7 @@ export default function LeaveManagement({ userRole, employeeProfile, company }) 
               }`}>
                 <div>
                   <p className="font-bold text-sm">
-                    Total Requested: {calculatedDays} {calculatedDays === 1 ? "Day" : "Days"}
+                    Total Requested: {calculatedDays} Working {calculatedDays === 1 ? "Day" : "Days"}
                   </p>
                   {!isFormValid && (
                     <p className="mt-1 font-medium text-rose-300">{formValidationError}</p>

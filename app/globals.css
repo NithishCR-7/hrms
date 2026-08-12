@@ -1,5 +1,63 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
 @import "tailwindcss";
+@import "react-phone-number-input/style.css";
+
+/* ── react-phone-number-input theme overrides ── */
+.phone-input-field {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0 12px;
+}
+.phone-input-field .PhoneInputCountry {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-right: 10px;
+  border-right: 1px solid #bae0fd;
+  margin-right: 10px;
+  flex-shrink: 0;
+  cursor: pointer;
+  position: relative;
+}
+.phone-input-field .PhoneInputCountryIcon {
+  width: 24px;
+  height: 18px;
+  border-radius: 3px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.1);
+}
+.phone-input-field .PhoneInputCountrySelect {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  cursor: pointer;
+}
+.phone-input-field .PhoneInputCountrySelectArrow {
+  color: #0369a1;
+  width: 8px;
+  height: 8px;
+  border-color: #0369a1;
+  opacity: 0.7;
+}
+.phone-input-field .PhoneInputInput {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: ui-monospace, 'Courier New', monospace;
+  letter-spacing: 0.06em;
+  color: #0f172a;
+  padding: 10px 0;
+}
+.phone-input-field .PhoneInputInput::placeholder {
+  color: #93c5fd;
+  font-weight: 400;
+  letter-spacing: 0;
+}
 
 :root {
   --background: #0f1117;

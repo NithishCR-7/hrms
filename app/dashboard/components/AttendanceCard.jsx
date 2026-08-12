@@ -646,21 +646,26 @@ export default function AttendanceCard() {
           {checkedIn ? (
             <div className="space-y-2">
               {isOnBreak ? (
-                <button
-                  type="button"
-                  onClick={() => handleToggleBreak("END")}
-                  disabled={actionLoading}
-                  className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                >
-                  {actionLoading ? (
-                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <span>▶</span>
-                      <span>Finish Lunch Break (Resume Shift)</span>
-                    </>
-                  )}
-                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleBreak("END")}
+                    disabled={actionLoading}
+                    className="py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-lg flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <span>▶</span>
+                    <span>Resume Shift</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={initiateCheckOut}
+                    disabled={actionLoading}
+                    className="py-3 rounded-xl border border-rose-500/40 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <span>⏹</span>
+                    <span>Check Out</span>
+                  </button>
+                </div>
               ) : (hasCompletedBreak || totalBreakSeconds > 0) ? (
                 <div className="space-y-2">
                   <div className="py-2 px-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] font-bold text-center flex items-center justify-center gap-1.5">
@@ -671,7 +676,7 @@ export default function AttendanceCard() {
                     type="button"
                     onClick={initiateCheckOut}
                     disabled={actionLoading}
-                    className="w-full py-3 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    className="w-full py-3 rounded-xl border border-rose-500/40 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                   >
                     <span>⏹</span>
                     <span>Check Out</span>
@@ -693,7 +698,7 @@ export default function AttendanceCard() {
                     type="button"
                     onClick={initiateCheckOut}
                     disabled={actionLoading}
-                    className="py-3 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    className="py-3 rounded-xl border border-rose-500/40 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                   >
                     <span>⏹</span>
                     <span>Check Out</span>
@@ -818,6 +823,33 @@ export default function AttendanceCard() {
                 <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
                   Reason for Early Check-Out *
                 </label>
+                
+                {/* Quick Selection Chips */}
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {[
+                    "Medical Emergency",
+                    "Personal Urgent Work",
+                    "Completed Today's Tasks",
+                    "Manager Prior Approval",
+                  ].map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => {
+                        setReasonInput(tag);
+                        setModalError("");
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-medium border transition cursor-pointer ${
+                        reasonInput === tag
+                          ? "bg-amber-500/20 text-amber-300 border-amber-500/50"
+                          : "bg-[#0f1117] text-slate-400 border-[#252d3d] hover:text-slate-200 hover:border-slate-600"
+                      }`}
+                    >
+                      + {tag}
+                    </button>
+                  ))}
+                </div>
+
                 <textarea
                   rows={3}
                   value={reasonInput}

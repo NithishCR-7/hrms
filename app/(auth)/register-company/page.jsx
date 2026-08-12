@@ -4,71 +4,63 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
+
+
+const INDUSTRIES = [
+  "Information Technology & Software",
+  "Healthcare & Life Sciences",
+  "Finance & Banking",
+  "E-Commerce & Retail",
+  "Manufacturing & Logistics",
+  "Education & EdTech",
+  "Services & Consulting",
+  "Other",
+];
 
 export default function RegisterCompanyPage() {
   const router = useRouter();
 
-  // 1. Form state
   const [formData, setFormData] = useState({
     companyName: "",
     companyEmail: "",
-    phone: "",
     industry: "",
     adminName: "",
     adminPassword: "",
     confirmPassword: "",
   });
 
+  const [phone, setPhone] = useState("");
+  const [phoneTouched, setPhoneTouched] = useState(false);
+
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  // Pending approval tracking state
   const [pendingRegistration, setPendingRegistration] = useState(null);
-  const [approvalStatus, setApprovalStatus] = useState("pending"); // "pending" | "approved" | "rejected"
+  const [approvalStatus, setApprovalStatus] = useState("pending");
   const [lastChecked, setLastChecked] = useState(null);
 
-  const industries = [
-    "Information Technology & Software",
-    "Healthcare & Life Sciences",
-    "Finance & Banking",
-    "E-Commerce & Retail",
-    "Manufacturing & Logistics",
-    "Education & EdTech",
-    "Services & Consulting",
-    "Other",
-  ];
+  const phoneValid = phone ? isValidPhoneNumber(phone) : false;
 
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+    setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // 2. Real-time Status Monitoring (Supabase Realtime + Polling Fallback)
+  // Real-time approval monitoring
   useEffect(() => {
     if (!pendingRegistration?.id || approvalStatus !== "pending") return;
 
     const supabase = createClient();
-
-    // Instant Realtime WebSocket subscription
     const channel = supabase
       .channel(`pending-reg-${pendingRegistration.id}`)
       .on(
         "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "pending_registrations",
-          filter: `id=eq.${pendingRegistration.id}`,
-        },
+        { event: "UPDATE", schema: "public", table: "pending_registrations", filter: `id=eq.${pendingRegistration.id}` },
         (payload) => {
           if (payload.new?.status === "approved") {
             setApprovalStatus("approved");
-            setTimeout(() => {
-              router.push(`/login?approved=true&email=${encodeURIComponent(pendingRegistration.companyEmail)}`);
-            }, 2000);
+            setTimeout(() => router.push(`/login?approved=true&email=${encodeURIComponent(pendingRegistration.companyEmail)}`), 2000);
           } else if (payload.new?.status === "rejected") {
             setApprovalStatus("rejected");
           }
@@ -76,20 +68,15 @@ export default function RegisterCompanyPage() {
       )
       .subscribe();
 
-    // Fast polling fallback (every 2 seconds)
     const checkStatus = async () => {
       try {
         const res = await fetch(`/api/auth/check-status?id=${pendingRegistration.id}`);
         if (!res.ok) return;
-
         const data = await res.json();
         setLastChecked(new Date().toLocaleTimeString());
-
         if (data.status === "approved") {
           setApprovalStatus("approved");
-          setTimeout(() => {
-            router.push("/login");
-          }, 1500);
+          setTimeout(() => router.push("/login"), 1500);
         } else if (data.status === "rejected") {
           setApprovalStatus("rejected");
         }
@@ -100,66 +87,24 @@ export default function RegisterCompanyPage() {
 
     checkStatus();
     const interval = setInterval(checkStatus, 2000);
-
-    return () => {
-      supabase.removeChannel(channel);
-      clearInterval(interval);
-    };
+    return () => { supabase.removeChannel(channel); clearInterval(interval); };
   }, [pendingRegistration, approvalStatus, router]);
 
-  // 3. Form Submit Handler
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     setErrorMessage("");
 
-    if (!formData.companyName.trim()) {
-      setErrorMessage("Please enter your Company Name.");
-      return;
-    }
-
-    if (!formData.companyEmail.trim()) {
-      setErrorMessage("Please enter your Company Work Email.");
-      return;
-    }
-
-    if (!formData.companyEmail.includes("@") || !formData.companyEmail.includes(".")) {
-      setErrorMessage("Please enter a valid email address.");
-      return;
-    }
-
-    if (!formData.phone.trim()) {
-      setErrorMessage("Please enter your Phone Number.");
-      return;
-    }
-
-    if (!formData.industry) {
-      setErrorMessage("Please select an Industry.");
-      return;
-    }
-
-    if (!formData.adminName.trim()) {
-      setErrorMessage("Please enter Admin Full Name.");
-      return;
-    }
-
-    if (!formData.adminPassword) {
-      setErrorMessage("Please enter Admin Password.");
-      return;
-    }
-
-    if (formData.adminPassword.length < 8) {
-      setErrorMessage("Admin Password must be at least 8 characters long.");
-      return;
-    }
-
-    if (formData.adminPassword !== formData.confirmPassword) {
-      setErrorMessage("Admin Password and Confirm Password do not match.");
-      return;
-    }
+    if (!formData.companyName.trim()) return setErrorMessage("Please enter your Company Name.");
+    if (!formData.companyEmail.trim() || !formData.companyEmail.includes("@"))
+      return setErrorMessage("Please enter a valid Company Work Email.");
+    if (!phone || !phoneValid) return setErrorMessage("Please enter a valid phone number.");
+    if (!formData.industry) return setErrorMessage("Please select an Industry.");
+    if (!formData.adminName.trim()) return setErrorMessage("Please enter Admin Full Name.");
+    if (!formData.adminPassword) return setErrorMessage("Please enter Admin Password.");
+    if (formData.adminPassword.length < 8) return setErrorMessage("Admin Password must be at least 8 characters.");
+    if (formData.adminPassword !== formData.confirmPassword) return setErrorMessage("Passwords do not match.");
 
     setIsSubmitting(true);
-
     try {
       const response = await fetch("/api/auth/register-company", {
         method: "POST",
@@ -167,7 +112,7 @@ export default function RegisterCompanyPage() {
         body: JSON.stringify({
           companyName: formData.companyName.trim(),
           companyEmail: formData.companyEmail.trim().toLowerCase(),
-          phone: formData.phone.trim(),
+          phone,
           industry: formData.industry,
           adminName: formData.adminName.trim(),
           adminPassword: formData.adminPassword,
@@ -175,13 +120,7 @@ export default function RegisterCompanyPage() {
       });
 
       let result = {};
-      try {
-        result = await response.json();
-      } catch (jsonErr) {
-        console.error("Non-JSON response during registration:", jsonErr);
-        setErrorMessage("Server error during registration. Please try again.");
-        return;
-      }
+      try { result = await response.json(); } catch { /* non-JSON */ }
 
       if (!response.ok) {
         setErrorMessage(result.message || "Registration failed.");
@@ -195,58 +134,43 @@ export default function RegisterCompanyPage() {
         setApprovalStatus("pending");
       }
     } catch (err) {
-      console.error("Client registration error:", err);
       setErrorMessage(err?.message || "Something went wrong. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Dynamic View: Render Pending / Approved / Rejected Card when registered
+  // ── Pending / Approved / Rejected screen ─────────────────────────────────
   if (pendingRegistration) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-sky-100 text-slate-800 flex items-center justify-center p-4 sm:p-6 lg:p-8 font-sans">
+      <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-sky-100 flex items-center justify-center p-4 font-sans">
         <div className="w-full max-w-lg bg-white border border-sky-100 rounded-3xl shadow-xl shadow-sky-500/10 p-8 sm:p-10 text-center">
-
           {approvalStatus === "pending" && (
             <>
               <div className="relative inline-flex items-center justify-center mb-6">
-                <div className="absolute inset-0 rounded-full bg-amber-400/20 animate-ping"></div>
+                <div className="absolute inset-0 rounded-full bg-amber-400/20 animate-ping" />
                 <div className="w-20 h-20 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center shadow-inner relative z-10">
                   <svg className="w-10 h-10 animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
               </div>
-
-              <h2 className="text-2xl font-bold text-slate-900 mb-2">
-                Awaiting Approval
-              </h2>
-
+              <h2 className="text-2xl font-bold text-slate-900 mb-2">Awaiting Approval</h2>
               <p className="text-sm text-slate-600 mb-6 leading-relaxed">
                 Registration for <strong className="text-sky-900">{pendingRegistration.companyName}</strong> has been submitted. The system owner has been notified.
               </p>
-
-              {/* Real-time Status Card */}
               <div className="bg-sky-50/80 border border-sky-200/80 rounded-2xl p-4 mb-6 space-y-2">
                 <div className="flex items-center justify-center space-x-2 text-xs font-semibold text-sky-700 uppercase tracking-wider">
-                  <span className="w-2.5 h-2.5 rounded-full bg-sky-500 animate-pulse"></span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-sky-500 animate-pulse" />
                   <span>Live Status Monitoring Active</span>
                 </div>
-                <p className="text-xs text-sky-800/80">
-                  When approved on mobile or email, this screen will automatically refresh and open your portal.
-                </p>
-                {lastChecked && (
-                  <p className="text-[11px] text-sky-600/70 pt-1">
-                    Last sync check: {lastChecked}
-                  </p>
-                )}
+                <p className="text-xs text-sky-800/80">When approved, this screen will automatically redirect you to the portal.</p>
+                {lastChecked && <p className="text-[11px] text-sky-600/70 pt-1">Last sync: {lastChecked}</p>}
               </div>
-
               <div className="flex justify-center items-center space-x-2 text-xs text-slate-500">
                 <svg className="animate-spin h-4 w-4 text-sky-600" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
                 <span>Waiting for owner action...</span>
               </div>
@@ -260,15 +184,10 @@ export default function RegisterCompanyPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-
-              <h2 className="text-2xl font-bold text-emerald-950 mb-2">
-                🎉 Registration Approved!
-              </h2>
-
+              <h2 className="text-2xl font-bold text-emerald-950 mb-2">🎉 Registration Approved!</h2>
               <p className="text-sm text-slate-600 mb-6 leading-relaxed">
-                Great news! <strong className="text-emerald-900">{pendingRegistration.companyName}</strong> has been approved. Redirecting you to sign in...
+                <strong className="text-emerald-900">{pendingRegistration.companyName}</strong> has been approved. Redirecting to sign in...
               </p>
-
               <Link
                 href={`/login?approved=true&email=${encodeURIComponent(pendingRegistration.companyEmail)}`}
                 className="inline-flex items-center justify-center px-6 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm transition shadow-lg shadow-emerald-500/25 w-full"
@@ -285,15 +204,10 @@ export default function RegisterCompanyPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </div>
-
-              <h2 className="text-2xl font-bold text-rose-950 mb-2">
-                Registration Request Declined
-              </h2>
-
+              <h2 className="text-2xl font-bold text-rose-950 mb-2">Registration Declined</h2>
               <p className="text-sm text-slate-600 mb-6 leading-relaxed">
-                Unfortunately, your registration request for {pendingRegistration.companyName} was not approved.
+                Your registration for {pendingRegistration.companyName} was not approved.
               </p>
-
               <button
                 onClick={() => setPendingRegistration(null)}
                 className="w-full py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-sm transition"
@@ -302,12 +216,12 @@ export default function RegisterCompanyPage() {
               </button>
             </>
           )}
-
         </div>
       </div>
     );
   }
 
+  // ── Registration Form ─────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-sky-100 text-slate-800 flex items-center justify-center p-4 sm:p-6 lg:p-8 font-sans">
       <div className="w-full max-w-xl bg-white border border-sky-100 rounded-3xl shadow-xl shadow-sky-500/10 p-6 sm:p-10">
@@ -325,7 +239,7 @@ export default function RegisterCompanyPage() {
 
         {/* Error Alert */}
         {errorMessage && (
-          <div className="mb-6 p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm font-medium flex items-center space-x-2">
+          <div className="mb-5 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm font-medium flex items-center gap-2.5">
             <svg className="w-5 h-5 text-rose-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -333,7 +247,6 @@ export default function RegisterCompanyPage() {
           </div>
         )}
 
-        {/* Registration Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
 
           {/* Company Name */}
@@ -345,7 +258,7 @@ export default function RegisterCompanyPage() {
               value={formData.companyName}
               onChange={handleChange}
               placeholder="e.g. Apex Innovations"
-              className="w-full px-4 py-3 rounded-xl bg-sky-50/50 border border-sky-200 text-slate-800 text-sm placeholder-sky-400/70 focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition duration-150"
+              className="w-full px-4 py-3 rounded-xl bg-sky-50/50 border border-sky-200 text-slate-800 text-sm placeholder-sky-400/70 focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition"
             />
           </div>
 
@@ -358,43 +271,66 @@ export default function RegisterCompanyPage() {
               value={formData.companyEmail}
               onChange={handleChange}
               placeholder="admin@company.com"
-              className="w-full px-4 py-3 rounded-xl bg-sky-50/50 border border-sky-200 text-slate-800 text-sm placeholder-sky-400/70 focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition duration-150"
+              className="w-full px-4 py-3 rounded-xl bg-sky-50/50 border border-sky-200 text-slate-800 text-sm placeholder-sky-400/70 focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition"
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Phone */}
+          {/* Phone + Industry — same row */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+
+            {/* Phone Number using react-phone-number-input */}
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-sky-900 mb-1.5">Phone Number *</label>
-              <input
-                type="tel"
-                name="phone"
-                value={formData.phone}
-                onChange={handleChange}
-                placeholder="+1 (555) 000-0000"
-                className="w-full px-4 py-3 rounded-xl bg-sky-50/50 border border-sky-200 text-slate-800 text-sm placeholder-sky-400/70 focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition duration-150"
-              />
+              <div className={`flex items-center rounded-xl border transition ${
+                phoneTouched && phone
+                  ? phoneValid
+                    ? "border-emerald-400 bg-emerald-50/30 focus-within:ring-4 focus-within:ring-emerald-500/10"
+                    : "border-rose-400 bg-rose-50/30 focus-within:ring-4 focus-within:ring-rose-500/10"
+                  : "border-sky-200 bg-sky-50/50 focus-within:border-sky-500 focus-within:ring-4 focus-within:ring-sky-500/10"
+              }`}>
+                <PhoneInput
+                  international
+                  countryCallingCodeEditable={false}
+                  defaultCountry="IN"
+                  value={phone}
+                  onChange={(val) => {
+                    setPhone(val || "");
+                    setPhoneTouched(true);
+                  }}
+                  className="phone-input-field w-full"
+                />
+              </div>
+
+              {/* Real-time Validation Hint */}
+              {phoneTouched && phone && (
+                <p className={`mt-1 text-[11px] font-semibold flex items-center gap-1.5 ${
+                  phoneValid ? "text-emerald-600" : "text-amber-600"
+                }`}>
+                  <span>{phoneValid ? "✅" : "⚠️"}</span>
+                  <span>{phoneValid ? `Valid number: ${phone}` : "Enter a valid international phone number"}</span>
+                </p>
+              )}
             </div>
 
-            {/* Industry */}
+            {/* Industry Sector */}
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-sky-900 mb-1.5">Industry *</label>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-sky-900 mb-1.5">Industry Sector *</label>
               <select
                 name="industry"
                 value={formData.industry}
                 onChange={handleChange}
-                className="w-full px-4 py-3 rounded-xl bg-sky-50/50 border border-sky-200 text-slate-800 text-sm focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition duration-150"
+                className="w-full px-4 py-3 rounded-xl bg-sky-50/50 border border-sky-200 text-slate-800 text-sm font-medium focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition"
               >
-                <option value="" className="text-slate-400">-- Select Industry --</option>
-                {industries.map((ind) => (
-                  <option key={ind} value={ind} className="text-slate-800">{ind}</option>
+                <option value="">-- Select Industry --</option>
+                {INDUSTRIES.map((ind) => (
+                  <option key={ind} value={ind}>{ind}</option>
                 ))}
               </select>
             </div>
           </div>
 
           {/* Admin Name */}
-          <div className="pt-2">
+          <div className="pt-1">
             <label className="block text-xs font-semibold uppercase tracking-wider text-sky-900 mb-1.5">Admin Full Name *</label>
             <input
               type="text"
@@ -402,12 +338,12 @@ export default function RegisterCompanyPage() {
               value={formData.adminName}
               onChange={handleChange}
               placeholder="John Doe"
-              className="w-full px-4 py-3 rounded-xl bg-sky-50/50 border border-sky-200 text-slate-800 text-sm placeholder-sky-400/70 focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition duration-150"
+              className="w-full px-4 py-3 rounded-xl bg-sky-50/50 border border-sky-200 text-slate-800 text-sm placeholder-sky-400/70 focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition"
             />
           </div>
 
+          {/* Passwords */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Admin Password */}
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-sky-900 mb-1.5">Admin Password *</label>
               <div className="relative">
@@ -417,7 +353,7 @@ export default function RegisterCompanyPage() {
                   value={formData.adminPassword}
                   onChange={handleChange}
                   placeholder="••••••••"
-                  className="w-full pl-4 pr-12 py-3 rounded-xl bg-sky-50/50 border border-sky-200 text-slate-800 text-sm placeholder-sky-400/70 focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition duration-150"
+                  className="w-full pl-4 pr-12 py-3 rounded-xl bg-sky-50/50 border border-sky-200 text-slate-800 text-sm placeholder-sky-400/70 focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition"
                 />
                 <button
                   type="button"
@@ -428,8 +364,6 @@ export default function RegisterCompanyPage() {
                 </button>
               </div>
             </div>
-
-            {/* Confirm Password */}
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-sky-900 mb-1.5">Confirm Password *</label>
               <input
@@ -438,40 +372,35 @@ export default function RegisterCompanyPage() {
                 value={formData.confirmPassword}
                 onChange={handleChange}
                 placeholder="••••••••"
-                className="w-full px-4 py-3 rounded-xl bg-sky-50/50 border border-sky-200 text-slate-800 text-sm placeholder-sky-400/70 focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition duration-150"
+                className="w-full px-4 py-3 rounded-xl bg-sky-50/50 border border-sky-200 text-slate-800 text-sm placeholder-sky-400/70 focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition"
               />
             </div>
           </div>
 
-          {/* Submit Button */}
+          {/* Submit */}
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full mt-6 py-3.5 px-4 rounded-xl bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white font-semibold text-sm transition duration-150 shadow-lg shadow-sky-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+            className="w-full mt-4 py-3.5 px-4 rounded-xl bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white font-semibold text-sm transition shadow-lg shadow-sky-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isSubmitting ? (
               <>
                 <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
-                <span>Registering Company...</span>
+                Registering Company...
               </>
             ) : (
-              <span>Complete Registration</span>
+              "Complete Registration"
             )}
           </button>
-
         </form>
 
-        {/* Login Navigation Link */}
         <div className="mt-8 text-center pt-6 border-t border-sky-100 text-xs text-sky-800">
           Already have an account?{" "}
-          <Link href="/login" className="font-bold text-sky-600 hover:text-sky-800 hover:underline">
-            Sign In Here
-          </Link>
+          <Link href="/login" className="font-bold text-sky-600 hover:text-sky-800 hover:underline">Sign In Here</Link>
         </div>
-
       </div>
     </div>
   );
