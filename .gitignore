@@ -19,7 +19,11 @@
 
 # production
 /build
-supabase/
+
+# migrations
+
+**/migrations/
+
 # misc
 .DS_Store
 *.pem
